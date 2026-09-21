@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PZ MP: Missing dictionary script after a Workshop mod dies</title>
+  <meta name="description" content="Fix Project Zomboid multiplayer WorldDictionary Missing dictionary script errors without regenerating WorldDictionary.bin.">
+  <meta property="og:title" content="PZ MP: Missing dictionary script fix">
+  <meta property="og:description" content="Unload dead SpriteConfig scripts in WorldDictionary.bin without scrambling item IDs.">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
+  <style>
+:root {
+  color-scheme: dark;
+  --bg: #141414;
+  --surface: #1c1c1c;
+  --text: #f0f0f0;
+  --muted: #a0a0a0;
+  --border: #333;
+  --link: #6eb6ff;
+  --danger: #ff8e8e;
+  --danger-bg: #2a1515;
+  --info: #6eb6ff;
+  --warn: #e6c07b;
+  --ok: #98c379;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif;
+  padding: 24px 20px 64px;
+}
+.wrap { max-width: 880px; margin: 0 auto; }
+h1 { font-size: 1.85rem; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
+h2 { font-size: 1.2rem; margin: 28px 0 10px; font-weight: 600; }
+h3 { font-size: 1rem; margin: 20px 0 8px; font-weight: 600; }
+p { margin: 0 0 12px; }
+.lede { color: var(--muted); margin-bottom: 20px; }
+.pill {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  vertical-align: middle;
+  margin-left: 8px;
+}
+a { color: var(--link); }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+p code, li code, td code, .callout code {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05em 0.35em;
+}
+.callout {
+  background: var(--danger-bg);
+  border: 1px solid #5a2a2a;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin: 16px 0 24px;
+}
+.callout strong { color: var(--danger); display: block; margin-bottom: 6px; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0 20px;
+  font-size: 0.95rem;
+}
+th, td {
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+th { background: var(--surface); font-weight: 600; }
+tr.tone-info td:first-child { box-shadow: inset 3px 0 0 var(--info); }
+tr.tone-warning td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+tr.tone-success td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 16px 0 24px;
+}
+@media (max-width: 700px) {
+  .grid { grid-template-columns: 1fr; }
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.card h3 { margin-top: 0; }
+.card p:last-child { margin-bottom: 0; }
+.muted { color: var(--muted); font-size: 0.9rem; }
+pre.code-block {
+  margin: 12px 0 20px;
+  padding: 0;
+  background: #1d1f21;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: auto;
+}
+pre.code-block code {
+  display: block;
+  padding: 14px 16px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  background: transparent !important;
+  border: 0;
+  text-shadow: none;
+}
+code[class*="language-"],
+pre[class*="language-"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-shadow: none;
+}
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 28px 0;
+}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+<h1>PZ MP: Missing dictionary script after a Workshop mod dies <span class="pill">Build 42</span></h1>
+    <p class="lede">
+      How to fix a multiplayer save that refuses to load because Steam deleted
+      (or you removed) a Workshop mod, without regenerating
+      <code>WorldDictionary.bin</code> and scrambling item IDs. Written from a
+      real Planet Express / Buildable Roofs case.
+    </p>
+
+    <div class="callout">
+      <strong>Do not delete WorldDictionary.bin</strong>
+      Forcing a regen reassigns registry IDs. Inventories and placed items can
+      deserialize against the wrong types. Patch the load flags instead.
+    </div>
+
+    <h2>Symptom</h2>
+    <p>Clients fail while joining. Server logs (or the client console) show:</p>
+    <pre class="code-block"><code class="language-text">WorldDictionaryException: [SpriteConfigs] Missing dictionary script on client: Base.SomeModThing
+WorldDictionary: Cannot load world due to WorldDictionary error.</code></pre>
+    <p class="muted">
+      The save still marks obsolete SpriteConfig scripts as loaded. The server
+      may tolerate stale entries; clients do not.
+    </p>
+
+    <hr>
+
+    <h2>Fix overview</h2>
+    <table>
+      <thead>
+        <tr><th>Step</th><th>Action</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td>Stop the server. Back up the whole world folder (at least <code>WorldDictionary.bin</code> + <code>WorldDictionaryReadable.lua</code>).</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td>In the SCRIPTS section of <code>WorldDictionaryReadable.lua</code>, identify obsolete entries with <code>isLoaded = true</code>.</td>
+        </tr>
+        <tr class="tone-info">
+          <td>3</td>
+          <td>In <code>WorldDictionary.bin</code>, flip each matching script load flag from <code>0x03</code> to <code>0x00</code> (same length, same IDs).</td>
+        </tr>
+        <tr class="tone-warning">
+          <td>4</td>
+          <td>Remove the dead Workshop ID from <code>WorkshopItems=</code>. Clients cannot download a delisted item.</td>
+        </tr>
+        <tr class="tone-success">
+          <td>5</td>
+          <td>Drop that <code>Mods=</code> id, or point <code>WorkshopItems</code> at a Steam-live successor if you have one. Start and join.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>What you are looking for</h2>
+    <p>
+      Under the SCRIPTS section header in <code>WorldDictionaryReadable.lua</code>,
+      entries look like:
+    </p>
+    <pre class="code-block"><code class="language-lua">{
+    registryID = 247,
+    name = "Base.CFBEAutomaticBrownRoofBottom10WidthFirst",
+    version = "4035058024937495098",
+    isLoaded = true,
+},</code></pre>
+    <p class="muted">
+      Those <code>isLoaded = true</code> scripts are what every client must still
+      provide. For a dead mod, unload them in the binary (optionally mirror
+      <code>isLoaded = false</code> in the readable dump).
+    </p>
+
+    <h2>Binary layout (B42 script load list)</h2>
+    <p>
+      Names are stored without the <code>Base.</code> prefix when the fulltype
+      starts with <code>Base.</code>. Immediately before the name:
+    </p>
+    <table>
+      <thead>
+        <tr><th>Field</th><th>Size</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>flag</td><td>1 byte</td><td><code>0x03</code> = loaded, <code>0x00</code> = unloaded</td></tr>
+        <tr><td>registryID</td><td>2 bytes</td><td>big-endian; matches readable <code>registryID</code></td></tr>
+        <tr><td>version</td><td>8 bytes</td><td>big-endian signed (<code>&gt;q</code>); matches readable <code>version</code></td></tr>
+        <tr><td>name length</td><td>2 bytes</td><td>big-endian</td></tr>
+        <tr><td>name</td><td>UTF-8</td><td>e.g. <code>CFBEAutomaticBrownRoofBottom10WidthFirst</code></td></tr>
+      </tbody>
+    </table>
+    <p class="muted">
+      Patch only the flag byte. Do not rewrite names or versions unless you
+      intentionally remap to another existing script of the same string length.
+    </p>
+
+    <h2>Example Python</h2>
+    <p>
+      Stop the server first. Change <code>PREFIX</code> to your dead mod’s
+      script prefix.
+    </p>
+    <pre class="code-block"><code class="language-python">from pathlib import Path
+import re
+import struct
+
+world = Path("path/to/Saves/Multiplayer/YourWorld")
+bin_path = world / "WorldDictionary.bin"
+readable = world / "WorldDictionaryReadable.lua"
+
+# Scripts that must no longer be required on clients:
+PREFIX = "Base.CFBE"  # change to your dead mod's script prefix
+
+data = bytearray(bin_path.read_bytes())
+text = readable.read_text(encoding="utf-8", errors="replace")
+marker = "--[[ ---- SCRIPTS ---- --]]"
+scripts = text[text.find(marker) :]
+
+pattern = (
+    r'\{\s*registryID\s*=\s*(\d+)\s*,\s*name\s*=\s*"([^"]+)"\s*,'
+    r'\s*version\s*=\s*"(-?\d+)"\s*,\s*isLoaded\s*=\s*(true|false)\s*,\s*\}'
+)
+
+entries = []
+for match in re.finditer(pattern, scripts):
+    name = match.group(2)
+    if not name.startswith(PREFIX):
+        continue
+    entries.append(
+        {
+            "id": int(match.group(1)),
+            "name": name,
+            "version": int(match.group(3)),
+            "loaded": match.group(4) == "true",
+        }
+    )
+
+patched = 0
+for entry in entries:
+    short = entry["name"][5:] if entry["name"].startswith("Base.") else entry["name"]
+    utf = short.encode("utf-8")
+    pat = struct.pack("&gt;H", len(utf)) + utf
+    offset = 0
+    while True:
+        found = data.find(pat, offset)
+        if found &lt; 0:
+            raise SystemExit(f"not found in bin: {entry['name']}")
+        version = struct.unpack("&gt;q", data[found - 8 : found])[0]
+        if version != entry["version"]:
+            offset = found + 1
+            continue
+        flag_at = found - 8 - 3
+        registry_id = struct.unpack("&gt;H", data[found - 8 - 2 : found - 8])[0]
+        assert registry_id == entry["id"], (entry, registry_id)
+        if data[flag_at] == 0x03:
+            data[flag_at] = 0x00
+            patched += 1
+        break
+
+bin_path.write_bytes(data)
+print(f"unloaded {patched} scripts")</code></pre>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Aftercare</h3>
+        <p>
+          Objects from the dead mod may be invisible, broken, or inert. This
+          patch restores <strong>loadability</strong>, not a perfect migration.
+        </p>
+        <p>
+          Keep the backup until you have played a session and checked loot and
+          vehicles.
+        </p>
+        <p>
+          A Workshop rewrite of the same mod is a new item — do not expect old
+          constructions to map cleanly.
+        </p>
+      </div>
+      <div class="card">
+        <h3>Worked case: Buildable Roofs</h3>
+        <p>
+          Legacy <code>3802011026</code> was taken down. Saves still required
+          hundreds of <code>Base.CFBE…</code> SpriteConfig scripts.
+        </p>
+        <p>
+          Unloading those flags, then pointing <code>WorkshopItems</code> at the
+          author’s V2 item <code>3805628478</code> (same Mod ID
+          <code>Buildable_Roofs_Garage_Doors</code>), let Steam clients download
+          again without a full dictionary regen.
+        </p>
+      </div>
+    </div>
+
+    <h3>Post tip</h3>
+    <p class="muted">
+      Lead with the error string so search finds the guide. Call out the
+      do-not-delete-the-bin rule early — that is where most people brick the
+      save.
+    </p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-lua.min.js"></script>
+</body>
+</html>
